@@ -1,0 +1,25 @@
+# Go
+*.o
+*.a
+*.so
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+
+# Binaries
+bin/
+dist/
+
+# Logs
+*.log
+
+# Database
+*.db
