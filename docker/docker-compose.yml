@@ -1,4 +1,36 @@
+version: '3.8'
+
 services:
+  file-storing-service:
+    build:
+      context: ../file-storing-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=admin
+      - DB_NAME=antiplagiat
+
+  file-analysis-service:
+    build:
+      context: ../file-analysis-service
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=admin
+      - DB_NAME=antiplagiat
+
   postgres:
     image: postgres:15-alpine
     container_name: antiplagiat_db
