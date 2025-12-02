@@ -90,6 +90,34 @@ func GetHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(work)
 }
 
+func GetFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var fileContent []byte
+	err = storage.DB.QueryRow(
+		"SELECT file_content FROM works WHERE id = $1", id,
+	).Scan(&fileContent)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Work not found", http.StatusNotFound)
+		} else {
+			log.Printf("GetFileHandler DB error: %v", err)
+			http.Error(w, "DB error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(fileContent)
+}
+
 func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

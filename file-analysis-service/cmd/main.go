@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/tupitsin88/antiplagiat/file-storing-service/internal/handlers"
-	"github.com/tupitsin88/antiplagiat/file-storing-service/internal/storage"
+	"github.com/tupitsin88/antiplagiat/file-analysis-service/internal/handlers"
+	"github.com/tupitsin88/antiplagiat/file-analysis-service/internal/storage"
 )
 
 func main() {
@@ -19,13 +20,12 @@ func main() {
 	defer storage.DB.Close()
 
 	router := mux.NewRouter()
-	router.HandleFunc("/upload", handlers.UploadHandler).Methods("POST")
-	router.HandleFunc("/get/{id}", handlers.GetHandler).Methods("GET")
-	router.HandleFunc("/download/{id}", handlers.GetFileHandler).Methods("GET")
+	router.HandleFunc("/check", handlers.CheckHandler).Methods("POST")
+	router.HandleFunc("/get-report/{id}", handlers.GetReportHandler).Methods("GET")
 	router.HandleFunc("/health", handlers.HealthHandler).Methods("GET")
 
 	server := &http.Server{
-		Addr:    ":8081",
+		Addr:    ":8082",
 		Handler: router,
 	}
 
@@ -38,16 +38,14 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		err := server.Shutdown(ctx)
-		if err != nil {
-			log.Fatal(err)
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatal("Shutdown error:", err)
 		}
 		log.Println("Server gracefully stopped")
-		os.Exit(0)
 	}()
 
-	log.Println("File Storing Service started on :8081")
-	if err := http.ListenAndServe(":8081", router); err != nil {
+	log.Println("File Analysis Service started on :8082")
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("Server error:", err)
 	}
 }
