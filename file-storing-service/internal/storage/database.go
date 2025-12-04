@@ -15,7 +15,7 @@ var DB *sql.DB
 func InitDB() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		return
+		log.Println("Warning: .env file not loaded, using environment variables")
 	}
 
 	connectionString := fmt.Sprintf(
@@ -28,13 +28,18 @@ func InitDB() {
 		os.Getenv("DB_PORT"),
 	)
 
-	DB, err = sql.Open("postgres", connectionString)
-	if err != nil {
-		log.Fatal(err)
+	var errOpen error
+	DB, errOpen = sql.Open("postgres", connectionString)
+	if errOpen != nil {
+		log.Fatalf("Failed to open DB: %v", errOpen)
 	}
 
-	if err = DB.Ping(); err != nil {
-		log.Fatal(err)
+	if DB == nil {
+		log.Fatal("DB is nil after sql.Open")
+	}
+
+	if errPing := DB.Ping(); errPing != nil {
+		log.Fatalf("Failed to ping DB: %v", errPing)
 	}
 
 	log.Println("Successfully connected to DB")

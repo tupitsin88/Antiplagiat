@@ -54,11 +54,11 @@ func calculatePlagiarism(fileText string) float32 {
 func CheckHandler(w http.ResponseWriter, r *http.Request) {
 	var report models.PlagiatReport
 
-	idStr := r.FormValue("id_work")
+	idStr := r.FormValue("work_id")
 	var err error
 	report.WorkID, err = strconv.Atoi(idStr)
 	if err != nil {
-		log.Println("Некорретный id_work")
+		log.Println("Некорретный work_id")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -75,7 +75,7 @@ func CheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id_work": report.WorkID,
+		"work_id": report.WorkID,
 		"status":  "checked",
 	})
 }
