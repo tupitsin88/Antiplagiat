@@ -20,7 +20,7 @@ func main() {
 	defer storage.DB.Close()
 
 	router := mux.NewRouter()
-	router.HandleFunc("/check", handlers.CheckHandler).Methods("POST")
+	router.HandleFunc("/check/{work_id}", handlers.CheckHandler).Methods("POST")
 	router.HandleFunc("/get-report/{id}", handlers.GetReportHandler).Methods("GET")
 	router.HandleFunc("/health", handlers.HealthHandler).Methods("GET")
 
