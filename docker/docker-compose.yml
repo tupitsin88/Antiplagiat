@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   file-storing-service:
     build:
@@ -15,6 +13,7 @@ services:
       - DB_USER=admin
       - DB_PASSWORD=admin
       - DB_NAME=antiplagiat
+      - DB_SSLMODE=disable
 
   file-analysis-service:
     build:
@@ -30,6 +29,7 @@ services:
       - DB_USER=admin
       - DB_PASSWORD=admin
       - DB_NAME=antiplagiat
+      - DB_SSLMODE=disable
 
   postgres:
     image: postgres:15-alpine

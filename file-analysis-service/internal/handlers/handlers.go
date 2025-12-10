@@ -16,22 +16,38 @@ import (
 )
 
 func CheckPlagiat(workID int) (float32, error) {
-	resp, err := http.Get(fmt.Sprintf("http://localhost:8081/get/%d", workID))
+	resp, err := http.Get(fmt.Sprintf("http://file-storing-service:8081/get/%d", workID))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get work metadata: %v", err)
 	}
 	defer resp.Body.Close()
 
-	var work models.Work
-	json.NewDecoder(resp.Body).Decode(&work)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("File Service returned %d: %s", resp.StatusCode, string(body))
+	}
 
-	fileResp, err := http.Get(fmt.Sprintf("http://localhost:8081/download/%d", workID))
+	var work models.Work
+	if err := json.NewDecoder(resp.Body).Decode(&work); err != nil {
+		return 0, fmt.Errorf("failed to decode work: %v", err)
+	}
+
+	fileResp, err := http.Get(fmt.Sprintf("http://file-storing-service:8081/download/%d", workID))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to download file: %v", err)
 	}
 	defer fileResp.Body.Close()
 
-	fileContent, _ := io.ReadAll(fileResp.Body)
+	if fileResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(fileResp.Body)
+		return 0, fmt.Errorf("File Service download returned %d: %s", fileResp.StatusCode, string(body))
+	}
+
+	fileContent, err := io.ReadAll(fileResp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file content: %v", err)
+	}
+
 	score := calculatePlagiarism(string(fileContent))
 	return score, nil
 }
@@ -53,30 +69,61 @@ func calculatePlagiarism(fileText string) float32 {
 
 func CheckHandler(w http.ResponseWriter, r *http.Request) {
 	var report models.PlagiatReport
-
-	idStr := r.FormValue("id_work")
+	vars := mux.Vars(r)
+	idStr := vars["work_id"]
 	var err error
 	report.WorkID, err = strconv.Atoi(idStr)
 	if err != nil {
-		log.Println("Некорретный id_work")
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Println("Некорректный work_id")
+		http.Error(w, "Invalid work_id", http.StatusBadRequest)
+		return
+	}
+
+	var existingReport models.PlagiatReport
+	err = storage.DB.QueryRow(
+		"SELECT id, work_id, plagiat_score, plagiat_sources, checked_at FROM plagiat_reports WHERE work_id = $1",
+		report.WorkID,
+	).Scan(&existingReport.ID, &existingReport.WorkID, &existingReport.PlagiatScore, &existingReport.PlagiatSources, &existingReport.CheckedAt)
+
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":            existingReport.ID,
+			"work_id":       existingReport.WorkID,
+			"plagiat_score": existingReport.PlagiatScore,
+			"status":        "checked",
+		})
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("DB query error: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
 	report.PlagiatScore, err = CheckPlagiat(report.WorkID)
+	if err != nil {
+		log.Printf("CheckPlagiat error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	var insertedID int
-	err = storage.DB.QueryRow("INSERT INTO (work_id, plagiat_score, plagiat_sources ) VALUES ($1, $2, $3) RETURNING id ",
-		report.WorkID, report.PlagiatScore, report.PlagiatSources).Scan(&insertedID)
+	err = storage.DB.QueryRow(
+		"INSERT INTO plagiat_reports (work_id, plagiat_score, plagiat_sources) VALUES ($1, $2, $3) RETURNING id",
+		report.WorkID, report.PlagiatScore, "empty").Scan(&insertedID)
 
 	if err != nil {
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("DB insert error: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id_work": report.WorkID,
-		"status":  "checked",
+		"id":            insertedID,
+		"work_id":       report.WorkID,
+		"plagiat_score": report.PlagiatScore,
+		"status":        "checked",
 	})
 }
 
@@ -108,7 +155,7 @@ func GetReportHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(plag)
 }
 
-func HealthHandler(w http.ResponseWriter, r *http.Request) {
+func HealthHandler(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`))
