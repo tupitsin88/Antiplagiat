@@ -1,0 +1,206 @@
+openapi: 3.0.0
+info:
+  title: Antiplagiat Service API
+  description: API для системы проверки студенческих работ на плагиат
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: API Gateway (Nginx)
+
+paths:
+  /api/store/upload:
+    post:
+      summary: Загрузка новой работы
+      tags:
+        - Storing Service
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                student_name:
+                  type: string
+                  example: "Иван Иванов"
+                assignment_name:
+                  type: string
+                  example: "Курсовая работа 1"
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Файл успешно загружен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_id:
+                    type: integer
+                  status:
+                    type: string
+                  message:
+                    type: string
+
+  /api/store/get/{id}:
+    get:
+      summary: Получение метаданных работы
+      tags:
+        - Storing Service
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Метаданные работы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  student_name:
+                    type: string
+                  assignment_name:
+                    type: string
+                  uploaded_at:
+                    type: string
+                    format: date-time
+
+  /api/store/get:
+    get:
+      summary: Получение списка всех работ
+      description: Возвращает массив метаданных всех загруженных работ
+      tags:
+        - Storing Service
+      responses:
+        '200':
+          description: Список работ успешно получен
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      example: 1
+                    student_name:
+                      type: string
+                      example: "Иван Иванов"
+                    assignment_name:
+                      type: string
+                      example: "Лабораторная 3"
+                    uploaded_at:
+                      type: string
+                      format: date-time
+                      example: "2025-12-12T10:00:00Z"
+
+  /api/store/download/{id}:
+    get:
+      summary: Скачивание файла работы
+      tags:
+        - Storing Service
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Файл работы
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: binary
+
+  /api/analysis/check/{work_id}:
+    post:
+      summary: Запуск проверки на плагиат
+      tags:
+        - Analysis Service
+      parameters:
+        - name: work_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Результат проверки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  id:
+                    type: integer
+                    description: Report ID
+                  work_id:
+                    type: integer
+                  plagiat_score:
+                    type: number
+                    format: float
+                  plagiat_sources:
+                    type: string
+
+  /api/analysis/get-report/{id}:
+    get:
+      summary: Получение полного отчета
+      tags:
+        - Analysis Service
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: Report ID
+      responses:
+        '200':
+          description: Полный отчет о плагиате
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  work_id:
+                    type: integer
+                  plagiat_score:
+                    type: number
+                  plagiat_sources:
+                    type: string
+                  word_cloud_url:
+                    type: string
+                  checked_at:
+                    type: string
+                    format: date-time
+
+  /api/analysis/health:
+    get:
+      summary: Проверка работоспособности системы
+      tags:
+        - System
+      responses:
+        '200':
+          description: OK
+  /api/store/health:
+    get:
+      summary: Проверка работоспособности системы
+      tags:
+        - System
+      responses:
+        '200':
+          description: OK
