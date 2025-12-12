@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
@@ -20,12 +20,11 @@ import (
 )
 
 func UploadHandler(w http.ResponseWriter, r *http.Request) {
-	// Ограничиваем размер загрузки (10MB)
+	// Ограничиваем размер загрузки 10MB
 	r.ParseMultipartForm(10 << 20)
 
 	studentName := r.FormValue("student_name")
 	assignmentName := r.FormValue("assignment_name")
-
 	if studentName == "" || assignmentName == "" {
 		http.Error(w, "Fields student_name and assignment_name are required", http.StatusBadRequest)
 		return
@@ -38,7 +37,14 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 1. Сохраняем метаданные в PostgreSQL
+	// Если файл формата не .txt, то возвращаем ошибку
+	filename := fileHeader.Filename
+	if !strings.HasSuffix(strings.ToLower(filename), ".txt") {
+		http.Error(w, "Only .txt files are allowed", http.StatusBadRequest)
+		return
+	}
+
+	// Сохраняем метаданные в PostgreSQL
 	var workID int
 	query := "INSERT INTO works (student_name, assignment_name) VALUES ($1, $2) RETURNING id"
 	err = storage.DB.QueryRow(query, studentName, assignmentName).Scan(&workID)
@@ -48,13 +54,11 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Загружаем файл в MinIO (имя файла = ID.txt)
+	// Загружаем файл в MinIO
 	ctx := context.Background()
 	bucketName := os.Getenv("S3_BUCKET")
-	// Принудительно сохраняем как .txt, так как анализ работает с текстом
 	objectName := fmt.Sprintf("%d.txt", workID)
 	contentType := "text/plain"
-
 	_, err = storage.MinioClient.PutObject(ctx, bucketName, objectName, file, fileHeader.Size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
@@ -66,28 +70,24 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"work_id": workID,
-		"status":  "uploaded",
-		"file":    objectName,
+		"id":     workID,
+		"status": "uploaded",
+		"file":   objectName,
 	})
 }
 
-// GetFileHandler - Скачивает файл из S3
+// GetFileHandler скачивает файл из S3-хранилища
 func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	idStr := vars["id"]
-
-	// Можно просто использовать ID из URL как имя файла
 	objectName := fmt.Sprintf("%s.txt", idStr)
 	bucketName := os.Getenv("S3_BUCKET")
-
 	object, err := storage.MinioClient.GetObject(context.Background(), bucketName, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		http.Error(w, "File object not found", http.StatusNotFound)
 		return
 	}
 	defer object.Close()
-
 	stat, err := object.Stat()
 	if err != nil {
 		http.Error(w, "File not found in storage", http.StatusNotFound)
@@ -96,13 +96,12 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", objectName))
 	w.Header().Set("Content-Type", stat.ContentType)
-
 	if _, err := io.Copy(w, object); err != nil {
 		log.Println("Stream Error:", err)
 	}
 }
 
-// GetHandler - Получение метаданных о работе
+// GetHandler получение метаданных о работе
 func GetHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
@@ -112,11 +111,9 @@ func GetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var work models.Work
-	// Запрос без file_content
 	err = storage.DB.QueryRow(
 		"SELECT id, student_name, assignment_name, uploaded_at FROM works WHERE id = $1", id,
 	).Scan(&work.ID, &work.StudentName, &work.AssignmentName, &work.UploadedAt)
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Work not found", http.StatusNotFound)
@@ -140,24 +137,15 @@ func GetAllWorksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var works []map[string]interface{}
+	var works []models.Work
 	for rows.Next() {
-		var id int
-		var studentName, assignmentName string
-		var uploadedAt time.Time
-
-		if err := rows.Scan(&id, &studentName, &assignmentName, &uploadedAt); err != nil {
+		var work models.Work
+		if err := rows.Scan(&work.ID, &work.StudentName, &work.AssignmentName, &work.UploadedAt); err != nil {
 			log.Printf("Scan Error: %v", err)
 			http.Error(w, "Failed to scan row", http.StatusInternalServerError)
 			return
 		}
-
-		works = append(works, map[string]interface{}{
-			"id":              id,
-			"student_name":    studentName,
-			"assignment_name": assignmentName,
-			"uploaded_at":     uploadedAt,
-		})
+		works = append(works, work)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

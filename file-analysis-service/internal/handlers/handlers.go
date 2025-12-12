@@ -17,7 +17,6 @@ import (
 	"github.com/tupitsin88/antiplagiat/file-analysis-service/internal/storage"
 )
 
-// Helper: URL сервиса хранения
 func getFileServiceURL() string {
 	val := os.Getenv("FILE_SERVICE_URL")
 	if val == "" {
@@ -26,7 +25,6 @@ func getFileServiceURL() string {
 	return val
 }
 
-// Helper: Word Cloud URL
 func generateWordCloudURL(text string) string {
 	limit := 3000
 	runes := []rune(text)
@@ -44,19 +42,15 @@ func generateWordCloudURL(text string) string {
 	params.Add("fontScale", "20")
 	params.Add("scale", "linear")
 	params.Add("background", "white")
-
 	return fmt.Sprintf("%s?%s", baseURL, params.Encode())
 }
 
-// Внутренняя структура для скачивания списка работ
-
-// Helper: Выполняет HTTP запрос с повторными попытками (Retry Pattern)
+// downloadWithRetry выполняет HTTP запрос с повторными попытками
 func downloadWithRetry(url string) ([]byte, error) {
 	var err error
-	for i := 0; i < 3; i++ { // Пробуем 3 раза
+	for i := 0; i < 3; i++ {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, reqErr := client.Get(url)
-
 		if reqErr == nil {
 			if resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
@@ -67,16 +61,14 @@ func downloadWithRetry(url string) ([]byte, error) {
 		} else {
 			err = reqErr
 		}
-		// Пауза перед следующей попыткой (Exponential backoff)
 		time.Sleep(time.Duration(i+1) * 200 * time.Millisecond)
 	}
 	return nil, err
 }
 
-// Helper: Скачивает текст работы по ID из File Storing Service с ретраями
+// downloadWorkContent скачивает текст работы по ID из File Storing Service с ретраями
 func downloadWorkContent(id int) (string, error) {
 	downloadURL := fmt.Sprintf("%s/download/%d", getFileServiceURL(), id)
-
 	content, err := downloadWithRetry(downloadURL)
 	if err != nil {
 		return "", err
@@ -84,17 +76,15 @@ func downloadWorkContent(id int) (string, error) {
 	return string(content), nil
 }
 
-// Helper: Получает метаданные работы (чтобы узнать assignment_name)
+// Получает метаданные работы, чтобы узнать assignment_name
 func getWorkMetadata(id int) (string, string, error) {
 	url := fmt.Sprintf("%s/get/%d", getFileServiceURL(), id)
 	client := &http.Client{Timeout: 5 * time.Second}
-
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", "", err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("status %d", resp.StatusCode)
 	}
@@ -109,11 +99,10 @@ func getWorkMetadata(id int) (string, string, error) {
 	return meta.StudentName, meta.AssignmentName, nil
 }
 
-// Алгоритм сравнения (Коэффициент Жаккара: пересечение слов / слова текущего текста)
+// Алгоритм сравнения: пересечение слов / слова текущего текста
 func calculateSimilarity(text1, text2 string) float32 {
 	t1 := strings.ToLower(text1)
 	t2 := strings.ToLower(text2)
-
 	words1 := strings.Fields(t1)
 	words2 := strings.Fields(t2)
 
@@ -123,14 +112,10 @@ func calculateSimilarity(text1, text2 string) float32 {
 	if len(words2) == 0 {
 		return 0.0
 	}
-
-	// Создаем set слов первого текста
 	set1 := make(map[string]bool)
 	for _, w := range words1 {
 		set1[w] = true
 	}
-
-	// Считаем пересечение
 	intersection := 0
 	for _, w := range words2 {
 		if set1[w] {
@@ -138,7 +123,6 @@ func calculateSimilarity(text1, text2 string) float32 {
 		}
 	}
 
-	// Рассчитываем процент совпадения относительно длины ТЕКУЩЕЙ работы
 	score := (float32(intersection) / float32(len(words1))) * 100.0
 	if score > 100.0 {
 		return 100.0
@@ -146,30 +130,25 @@ func calculateSimilarity(text1, text2 string) float32 {
 	return score
 }
 
-// Основная логика проверки
 // Основная логика проверки с Graceful Degradation
 func checkPlagiatLogic(workID int) (float32, string, string, error) {
-	// 1. Скачиваем текст текущей работы (КРИТИЧНО: если тут ошибка — анализ невозможен)
 	currentText, err := downloadWorkContent(workID)
 	if err != nil {
 		return 0, "", "", fmt.Errorf("failed to download source work: %v", err)
 	}
 
-	// 2. Узнаем название задания
 	_, assignmentName, err := getWorkMetadata(workID)
 	if err != nil {
-		// Graceful: Если метаданные недоступны, просто возвращаем результат без сравнения
+		// Если метаданные недоступны, просто возвращаем результат без сравнения
 		log.Printf("Metadata unavailable for work %d: %v", workID, err)
 		return 0, currentText, "metadata_error", nil
 	}
-
-	// 3. Ищем соседей
 	rows, err := storage.DB.Query(
 		"SELECT id, student_name FROM works WHERE assignment_name = $1 AND id != $2",
 		assignmentName, workID,
 	)
 	if err != nil {
-		// Graceful: Если БД недоступна, возвращаем результат без сравнения
+		// Если БД недоступна, возвращаем результат без сравнения
 		log.Printf("DB error getting neighbors: %v", err)
 		return 0, currentText, "db_error", nil
 	}
@@ -178,43 +157,36 @@ func checkPlagiatLogic(workID int) (float32, string, string, error) {
 	var maxScore float32 = 0.0
 	var sources []string
 	errorsCount := 0
-
-	// 4. Сравниваем
 	for rows.Next() {
 		var other models.WorkData
 		if err := rows.Scan(&other.ID, &other.StudentName); err != nil {
 			continue
 		}
 
-		// Graceful: Если не скачалась чужая работа — не падаем, а пропускаем
+		// Если не скачалась чужая работа — не падаем, а пропускаем
 		otherText, err := downloadWorkContent(other.ID)
 		if err != nil {
 			log.Printf("Warning: Failed to download work %d for comparison: %v. Skipping.", other.ID, err)
 			errorsCount++
 			continue
 		}
-
 		score := calculateSimilarity(currentText, otherText)
 		if score > 50.0 {
 			sources = append(sources, fmt.Sprintf("%s (id:%d, %.1f%%)", other.StudentName, other.ID, score))
 		}
-
 		if score > maxScore {
 			maxScore = score
 		}
 	}
-
 	plagiatSources := "internet"
 	if len(sources) > 0 {
 		plagiatSources = strings.Join(sources, ", ")
 	} else if maxScore < 10.0 {
 		plagiatSources = "none"
 	}
-
 	if errorsCount > 0 {
 		plagiatSources += fmt.Sprintf(" (skipped %d due to errors)", errorsCount)
 	}
-
 	return maxScore, currentText, plagiatSources, nil
 }
 
@@ -228,7 +200,6 @@ func CheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	var existingID int
 	err = storage.DB.QueryRow("SELECT id FROM plagiat_reports WHERE work_id = $1", workID).Scan(&existingID)
-
 	if err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -240,7 +211,6 @@ func CheckHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Запускаем анализ
 	score, text, sources, err := checkPlagiatLogic(workID)
 	if err != nil {
 		log.Printf("Analysis failed: %v", err)
@@ -249,7 +219,6 @@ func CheckHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cloudURL := generateWordCloudURL(text)
-
 	var newID int
 	err = storage.DB.QueryRow(
 		`INSERT INTO plagiat_reports (work_id, plagiat_score, plagiat_sources, word_cloud_url) 
@@ -273,13 +242,11 @@ func CheckHandler(w http.ResponseWriter, r *http.Request) {
 func GetReportHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, _ := strconv.Atoi(vars["id"])
-
 	var report models.PlagiatReport
 	err := storage.DB.QueryRow(
 		`SELECT id, work_id, plagiat_score, plagiat_sources, COALESCE(word_cloud_url, ''), checked_at 
         FROM plagiat_reports WHERE id = $1`, id).Scan(
 		&report.ID, &report.WorkID, &report.PlagiatScore, &report.PlagiatSources, &report.WordCloudURL, &report.CheckedAt)
-
 	if err != nil {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return

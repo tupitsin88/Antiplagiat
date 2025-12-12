@@ -36,11 +36,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  work_id:
+                  id:
                     type: integer
                   status:
                     type: string
-                  message:
+                  file:
                     type: string
 
   /api/store/get/{id}:

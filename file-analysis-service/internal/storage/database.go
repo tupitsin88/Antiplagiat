@@ -28,7 +28,6 @@ func InitDB() {
 	if err != nil {
 		log.Fatal("Failed to open DB:", err)
 	}
-
 	err = DB.Ping()
 	if err != nil {
 		log.Fatal("Failed to ping DB:", err)

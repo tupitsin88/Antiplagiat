@@ -11,12 +11,6 @@ type PlagiatReport struct {
 	CheckedAt      time.Time `json:"checked_at"`
 }
 
-type CheckResponse struct {
-	ReportID     int     `json:"report_id"`
-	PlagiatScore float32 `json:"plagiat_score"`
-	Status       string  `json:"status"` // "checked"
-}
-
 type WorkData struct {
 	ID          int
 	StudentName string

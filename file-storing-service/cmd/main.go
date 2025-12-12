@@ -15,27 +15,22 @@ import (
 )
 
 func main() {
-	// Инициализация БД и MinIO
 	storage.InitDB()
 	storage.InitMinio()
 	defer storage.DB.Close()
 
 	router := mux.NewRouter()
-
-	// Endpoints
 	router.HandleFunc("/upload", handlers.UploadHandler).Methods("POST")
 	router.HandleFunc("/get/{id}", handlers.GetHandler).Methods("GET")
 	router.HandleFunc("/get", handlers.GetAllWorksHandler).Methods("GET")
 	router.HandleFunc("/download/{id}", handlers.GetFileHandler).Methods("GET")
 	router.HandleFunc("/health", handlers.HealthHandler).Methods("GET")
 
-	// Server config
 	server := &http.Server{
 		Addr:    ":8081",
 		Handler: router,
 	}
 
-	// Graceful Shutdown
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

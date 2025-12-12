@@ -16,7 +16,6 @@ WORKDIR /root/
 
 COPY --from=builder /app/main .
 
-# Открываем порт сервиса (Analysis Service у нас на 8082)
 EXPOSE 8082
 
 CMD ["./main"]
